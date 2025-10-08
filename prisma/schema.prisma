@@ -1,138 +1,129 @@
+// prisma/schema.prisma
+// ================ Generador y datasource ================
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  // En producción (Vercel) usas el Pooler en DATABASE_URL
+  url       = env("DATABASE_URL")
+  // Para introspección/migraciones locales, usa la directa:
+  // (si no puedes abrir el 5432 desde tu red, puedes dejarla sin usar)
+  directUrl = env("DIRECT_URL")
 }
 
-enum Role {
+// ====================== Enums ===========================
+enum Sign {
+  _1
+  X
+  _2
+}
+
+// (Opcional si usas lista blanca con roles simples)
+enum AllowedRole {
   admin
   player
 }
 
-enum MatchStatus {
-  scheduled
-  in_play
-  finished
-  cancelled
-  suspended
-  postponed
+// (Opcional si decides usar estado de jornada)
+enum MatchdayStatus {
+  OPEN
+  CLOSED
+  SETTLED
 }
 
-enum Sign {
-  ONE
-  X
-  TWO
-}
+// ====================== Modelos =========================
 
+// Usuario interno (para asociar picks a un email)
 model User {
-  id              String           @id @default(uuid())
-  email           String           @unique
-  displayName     String
-  role            Role             @default(player)
-  isActive        Boolean          @default(true)
-  createdAt       DateTime         @default(now())
-  predictions     Prediction[]
-  exemptions      Exemption[]
-  settlementItems SettlementItem[]
-}
+  id          Int           @id @default(autoincrement())
+  email       String        @unique
+  displayName String?
+  isActive    Boolean       @default(true)
+  createdAt   DateTime      @default(now())
 
-model Team {
-  id           Int     @id @default(autoincrement())
-  name         String  @unique
-  shortName    String?
-  isUnionistas Boolean @default(false)
-  homeMatches  Match[] @relation("homeTeam")
-  awayMatches  Match[] @relation("awayTeam")
-}
-
-model Matchday {
-  id          Int          @id @default(autoincrement())
-  season      String
-  number      Int
-  startsAt    DateTime
-  matches     Match[]
-  settlements Settlement[]
+  predictions Prediction[]
   exemptions  Exemption[]
-
-  @@unique([season, number])
 }
 
+// Equipo
+model Team {
+  id            Int      @id @default(autoincrement())
+  name          String
+  shortName     String?
+  isUnionistas  Boolean  @default(false)
+
+  homeMatches   Match[]  @relation("HomeTeam")
+  awayMatches   Match[]  @relation("AwayTeam")
+}
+
+// Jornada
+model Matchday {
+  id        Int             @id @default(autoincrement())
+  number    Int
+  season    String
+  startsAt  DateTime
+  status    MatchdayStatus? // si no lo usas, puedes quitarlo
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  matches   Match[]
+  // (Las predicciones van por partido; no necesitamos relación directa aquí)
+}
+
+// Partido
 model Match {
-  id                Int          @id @default(autoincrement())
-  matchdayId        Int
-  matchday          Matchday     @relation(fields: [matchdayId], references: [id], onDelete: Cascade)
-  homeTeamId        Int
-  homeTeam          Team         @relation("homeTeam", fields: [homeTeamId], references: [id])
-  awayTeamId        Int
-  awayTeam          Team         @relation("awayTeam", fields: [awayTeamId], references: [id])
-  startsAt          DateTime
-  status            MatchStatus  @default(scheduled)
-  goalsHome         Int?
-  goalsAway         Int?
-  federationOutcome Sign?
-  predictions       Prediction[]
+  id          Int       @id @default(autoincrement())
+  matchdayId  Int
+  homeTeamId  Int
+  awayTeamId  Int
+  startsAt    DateTime
+  result      Sign?
+
+  matchday    Matchday  @relation(fields: [matchdayId], references: [id], onDelete: Cascade)
+  homeTeam    Team      @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam    Team      @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  predictions Prediction[]
 
   @@index([matchdayId])
-  @@index([startsAt])
+  @@index([homeTeamId])
+  @@index([awayTeamId])
 }
 
+// Predicción de un usuario para un partido
 model Prediction {
   id        Int      @id @default(autoincrement())
+  userId    Int
   matchId   Int
-  userId    String
   predSign  Sign
   createdAt DateTime @default(now())
-  locked    Boolean  @default(false)
 
-  user  User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  match Match            @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  score PredictionScore?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  match     Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
 
-  @@unique([matchId, userId])
+  @@unique([userId, matchId]) // un pick por usuario y partido
 }
 
-model PredictionScore {
-  predictionId Int        @id
-  points       Int        @default(0)
-  calculatedAt DateTime   @default(now())
-  prediction   Prediction @relation(fields: [predictionId], references: [id], onDelete: Cascade)
-}
-
+// Exención de pago tras pleno, etc. (1 por jornada/usuario)
 model Exemption {
-  id         Int    @id @default(autoincrement())
-  userId     String
+  id         Int       @id @default(autoincrement())
+  userId     Int
   matchdayId Int
-  amount     Int    @default(3)
-  used       Int    @default(0)
+  createdAt  DateTime  @default(now())
 
-  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  matchday Matchday @relation(fields: [matchdayId], references: [id], onDelete: Cascade)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  matchday   Matchday  @relation(fields: [matchdayId], references: [id], onDelete: Cascade)
 
   @@unique([userId, matchdayId])
 }
 
-model Settlement {
-  id         Int      @id @default(autoincrement())
-  matchdayId Int
-  createdAt  DateTime @default(now())
-  totalPool  Decimal  @db.Decimal(6, 2)
-  notes      String?
-
-  matchday Matchday         @relation(fields: [matchdayId], references: [id], onDelete: Cascade)
-  items    SettlementItem[]
+// ================= Lista blanca de emails =================
+// (Si la usas para controlar quién entra a la app)
+model AllowedEmail {
+  email     String      @id
+  role      AllowedRole @default(player)
+  isActive  Boolean     @default(true)
+  createdAt DateTime    @default(now())
 }
 
-model SettlementItem {
-  id                 Int     @id @default(autoincrement())
-  settlementId       Int
-  userId             String
-  role               String // 'worst' | 'second_worst'
-  amount             Decimal @db.Decimal(6, 2)
-  coveredByExemption Boolean @default(false)
-
-  settlement Settlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
-  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
