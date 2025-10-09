@@ -9,15 +9,20 @@ datasource db {
   // En producción (Vercel) usas el Pooler en DATABASE_URL
   url       = env("DATABASE_URL")
   // Para introspección/migraciones locales, usa la directa:
-  // (si no puedes abrir el 5432 desde tu red, puedes dejarla sin usar)
   directUrl = env("DIRECT_URL")
 }
 
 // ====================== Enums ===========================
+// OJO: Prisma no admite nombres de enum como "_1" directamente.
+// Por eso usamos nombres "bonitos" y los mapeamos a los valores reales de la BD.
 enum Sign {
-  _1
+  ONE @map("_1")
   X
-  _2
+  TWO @map("_2")
+
+  // Si en tu BD el enum se llama "Sign", deja esta línea.
+  // Si se llama distinto, cámbialo o elimínalo.
+  @@map("Sign")
 }
 
 // (Opcional si usas lista blanca con roles simples)
@@ -39,7 +44,7 @@ enum MatchdayStatus {
 model User {
   id          Int           @id @default(autoincrement())
   email       String        @unique
-  displayName String?
+  displayName String
   isActive    Boolean       @default(true)
   createdAt   DateTime      @default(now())
 
@@ -64,12 +69,13 @@ model Matchday {
   number    Int
   season    String
   startsAt  DateTime
-  status    MatchdayStatus? // si no lo usas, puedes quitarlo
+  status    MatchdayStatus?
   createdAt DateTime        @default(now())
   updatedAt DateTime        @updatedAt
 
-  matches   Match[]
-  // (Las predicciones van por partido; no necesitamos relación directa aquí)
+  matches     Match[]
+  // ✅ IMPORTANTE: back-relation para resolver el error que tenías
+  exemptions  Exemption[]
 }
 
 // Partido
@@ -121,9 +127,12 @@ model Exemption {
 // ================= Lista blanca de emails =================
 // (Si la usas para controlar quién entra a la app)
 model AllowedEmail {
-  email     String      @id
+  email     String      @id @db.Citext
   role      AllowedRole @default(player)
-  isActive  Boolean     @default(true)
-  createdAt DateTime    @default(now())
+  isActive  Boolean     @map("is_active") @default(true)
+  createdAt DateTime    @map("created_at") @default(now())
+
+  @@map("AllowedEmail")
 }
+
 
