@@ -2,6 +2,9 @@
   "name": "porra-primera-rfef-mvp",
   "version": "0.1.0",
   "private": true,
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
@@ -24,11 +27,13 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/node": "^24.7.1",
     "@types/react": "19.2.2",
     "eslint": "^8.57.0",
     "eslint-config-next": "14.2.5",
     "prisma": "^5.15.0",
+    "ts-node": "^10.9.2",
     "tsx": "^4.16.2",
-    "typescript": "^5.5.4"
+    "typescript": "^5.9.3"
   }
 }

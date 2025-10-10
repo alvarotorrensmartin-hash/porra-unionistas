@@ -42,11 +42,12 @@ enum MatchdayStatus {
 
 // Usuario interno (para asociar picks a un email)
 model User {
-  id          Int           @id @default(autoincrement())
-  email       String        @unique
+  id          String      @id @default(uuid()) @db.Uuid
+  email       String      @unique @db.Citext
   displayName String
-  isActive    Boolean       @default(true)
-  createdAt   DateTime      @default(now())
+  role        AllowedRole @default(player)
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
 
   predictions Prediction[]
   exemptions  Exemption[]
@@ -54,13 +55,13 @@ model User {
 
 // Equipo
 model Team {
-  id            Int      @id @default(autoincrement())
-  name          String
-  shortName     String?
-  isUnionistas  Boolean  @default(false)
+  id           Int     @id @default(autoincrement())
+  name         String
+  shortName    String?
+  isUnionistas Boolean @default(false)
 
-  homeMatches   Match[]  @relation("HomeTeam")
-  awayMatches   Match[]  @relation("AwayTeam")
+  homeMatches Match[] @relation("HomeTeam")
+  awayMatches Match[] @relation("AwayTeam")
 }
 
 // Jornada
@@ -73,23 +74,23 @@ model Matchday {
   createdAt DateTime        @default(now())
   updatedAt DateTime        @updatedAt
 
-  matches     Match[]
+  matches    Match[]
   // ✅ IMPORTANTE: back-relation para resolver el error que tenías
-  exemptions  Exemption[]
+  exemptions Exemption[]
 }
 
 // Partido
 model Match {
-  id          Int       @id @default(autoincrement())
-  matchdayId  Int
-  homeTeamId  Int
-  awayTeamId  Int
-  startsAt    DateTime
-  result      Sign?
+  id         Int      @id @default(autoincrement())
+  matchdayId Int
+  homeTeamId Int
+  awayTeamId Int
+  startsAt   DateTime
+  result     Sign?
 
-  matchday    Matchday  @relation(fields: [matchdayId], references: [id], onDelete: Cascade)
-  homeTeam    Team      @relation("HomeTeam", fields: [homeTeamId], references: [id])
-  awayTeam    Team      @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  matchday    Matchday     @relation(fields: [matchdayId], references: [id], onDelete: Cascade)
+  homeTeam    Team         @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam    Team         @relation("AwayTeam", fields: [awayTeamId], references: [id])
   predictions Prediction[]
 
   @@index([matchdayId])
@@ -100,26 +101,26 @@ model Match {
 // Predicción de un usuario para un partido
 model Prediction {
   id        Int      @id @default(autoincrement())
-  userId    Int
+  userId    String   @db.Uuid
   matchId   Int
   predSign  Sign
   createdAt DateTime @default(now())
 
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  match     Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  match Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
 
   @@unique([userId, matchId]) // un pick por usuario y partido
 }
 
 // Exención de pago tras pleno, etc. (1 por jornada/usuario)
 model Exemption {
-  id         Int       @id @default(autoincrement())
-  userId     Int
+  id         Int      @id @default(autoincrement())
+  userId     String   @db.Uuid
   matchdayId Int
-  createdAt  DateTime  @default(now())
+  createdAt  DateTime @default(now())
 
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  matchday   Matchday  @relation(fields: [matchdayId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  matchday Matchday @relation(fields: [matchdayId], references: [id], onDelete: Cascade)
 
   @@unique([userId, matchdayId])
 }
@@ -129,10 +130,8 @@ model Exemption {
 model AllowedEmail {
   email     String      @id @db.Citext
   role      AllowedRole @default(player)
-  isActive  Boolean     @map("is_active") @default(true)
-  createdAt DateTime    @map("created_at") @default(now())
+  isActive  Boolean     @default(true) @map("is_active")
+  createdAt DateTime    @default(now()) @map("created_at")
 
   @@map("AllowedEmail")
 }
-
-
