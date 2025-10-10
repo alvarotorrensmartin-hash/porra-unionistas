@@ -27,6 +27,8 @@ export default async function AdminPage() {
               📢 Probar notificaciones
             </Link>
           </li>
+           <li><a href="/admin/access" className="underline">Gestionar acceso (lista blanca)</a></li>
+           <li><a href="/api/notifications/test">Probar notificaciones</a></li>
         </ul>
       </section>
 
