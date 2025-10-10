@@ -1,54 +1,59 @@
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
+// src/app/leaderboard/page.tsx
+export const dynamic = "force-dynamic";
 
-import { prisma } from '@/lib/db';
-import Card from '@/components/Card';
-import { Medal } from '@/components/Medal';
+import { prisma } from "@/lib/db";
 
 export default async function LeaderboardPage() {
-  const users = await prisma.user.findMany({});
+  // 1) Traer todos los usuarios
+  const users = await prisma.user.findMany({
+    orderBy: [{ displayName: "asc" }],
+    select: { id: true, displayName: true },
+  });
+
+  // 2) Calcular puntos por usuario (1 punto por acierto de signo)
   const rows: { user: string; points: number }[] = [];
+
   for (const u of users) {
-    const scores = await prisma.predictionScore.aggregate({
-      _sum: { points: true },
-      where: { prediction: { userId: u.id } }
+    const preds = await prisma.prediction.findMany({
+      where: { userId: u.id },
+      include: {
+        match: { select: { result: true } },
+      },
     });
-    rows.push({ user: u.displayName || u.email, points: scores._sum.points || 0 });
+
+    const points = preds.reduce((sum, p) => {
+      const result = p.match?.result; // puede ser null si el partido no está liquidado
+      if (!result) return sum;
+      return sum + (result === p.predSign ? 1 : 0);
+    }, 0);
+
+    rows.push({ user: u.displayName, points });
   }
-  rows.sort((a,b)=>b.points - a.points);
+
+  // 3) Ordenar de mayor a menor
+  rows.sort((a, b) => b.points - a.points);
 
   return (
-    <section>
-      <div className="section-title">
-        <span className="dot" /> <h2 style={{margin:0}}>Clasificación general</h2>
-      </div>
-
-      <Card title="Top Unionistas" subtitle="Medallero en vivo" badge="🏆">
-        <table className="table" style={{marginTop:10}}>
-          <thead>
-            <tr>
-              <th style={{width:60}}>Pos</th>
-              <th>Usuario</th>
-              <th style={{width:120, textAlign:'right'}}>Puntos</th>
+    <main className="p-6">
+      <h1 className="text-2xl font-bold mb-4">Clasificación</h1>
+      <table className="min-w-full border border-gray-300 text-sm">
+        <thead className="bg-gray-100">
+          <tr>
+            <th className="border px-3 py-2 text-left">Usuario</th>
+            <th className="border px-3 py-2 text-left">Puntos</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.user}>
+              <td className="border px-3 py-2">{r.user}</td>
+              <td className="border px-3 py-2">{r.points}</td>
             </tr>
-          </thead>
-          <tbody>
-            {rows.map((r,i)=>(
-              <tr key={r.user}>
-                <td>
-                  <div className="row">
-                    <span style={{width:26,textAlign:'center'}}>{i+1}</span>
-                    <Medal place={i+1} />
-                  </div>
-                </td>
-                <td>{r.user}</td>
-                <td style={{textAlign:'right', fontWeight:700, color:'var(--u-accent)'}}>{r.points}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Card>
-    </section>
+          ))}
+        </tbody>
+      </table>
+    </main>
   );
 }
+
 

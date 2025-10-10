@@ -2,33 +2,30 @@
 import { prisma } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 
-export const dynamic = "force-dynamic"; // evita problemas con el caché de páginas
+export const dynamic = "force-dynamic";
 
-// ✅ Componente principal de la página
 export default async function AdminAccessPage() {
-  // Obtener los emails permitidos desde la base de datos
   const allowed = await prisma.allowedEmail.findMany({
     orderBy: { createdAt: "desc" },
   });
 
-  // Render de la página
   return (
     <main className="p-8">
       <h1 className="text-2xl font-bold mb-6">Panel de administración</h1>
 
-      {/* --- Formulario para añadir nuevo email --- */}
       <form
         action={async (formData) => {
           "use server";
           const email = formData.get("email")?.toString().toLowerCase();
-          const role = formData.get("role")?.toString() || "player";
-
+          const role = (formData.get("role")?.toString() || "player") as
+            | "admin"
+            | "player";
           if (!email) return;
 
           await prisma.allowedEmail.upsert({
             where: { email },
-            update: { isActive: true, role: role as any },
-            create: { email, role: role as any, isActive: true },
+            update: { isActive: true, role },
+            create: { email, role, isActive: true },
           });
 
           revalidatePath("/admin/access");
@@ -46,15 +43,11 @@ export default async function AdminAccessPage() {
           <option value="player">Jugador</option>
           <option value="admin">Administrador</option>
         </select>
-        <button
-          type="submit"
-          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-        >
+        <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded">
           Añadir
         </button>
       </form>
 
-      {/* --- Tabla con los correos actuales --- */}
       <table className="min-w-full border border-gray-300 text-sm">
         <thead className="bg-gray-100">
           <tr>
@@ -69,9 +62,7 @@ export default async function AdminAccessPage() {
             <tr key={item.email}>
               <td className="border px-3 py-2">{item.email}</td>
               <td className="border px-3 py-2 capitalize">{item.role}</td>
-              <td className="border px-3 py-2">
-                {item.isActive ? "✅" : "❌"}
-              </td>
+              <td className="border px-3 py-2">{item.isActive ? "✅" : "❌"}</td>
               <td className="border px-3 py-2">
                 <form
                   action={async () => {
@@ -80,10 +71,7 @@ export default async function AdminAccessPage() {
                     revalidatePath("/admin/access");
                   }}
                 >
-                  <button
-                    type="submit"
-                    className="text-red-600 hover:text-red-800"
-                  >
+                  <button type="submit" className="text-red-600 hover:text-red-800">
                     Eliminar
                   </button>
                 </form>
@@ -95,5 +83,6 @@ export default async function AdminAccessPage() {
     </main>
   );
 }
+
 
 
