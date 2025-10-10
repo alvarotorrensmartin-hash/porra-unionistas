@@ -1,36 +1,39 @@
+// prisma/seed.ts
 import { PrismaClient, AllowedRole } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
 async function main() {
-  // Admin (upsert por email)
+  // Crea/asegura un admin
   await prisma.user.upsert({
     where: { email: 'admin@unionistas.com' },
-    update: {},
     create: {
       email: 'admin@unionistas.com',
       displayName: 'Admin',
-      role: AllowedRole.admin,
+      role: 'admin' as any,   // <- sin importar enums, evita errores
       isActive: true,
     },
+    update: {},
   });
 
-  // Jugador ejemplo
-  await prisma.user.upsert({
-    where: { email: 'jugador@unionistas.com' },
-    update: {},
-    create: {
-      email: 'jugador@unionistas.com',
-      displayName: 'Jugador Demo',
-      role: AllowedRole.player,
-      isActive: true,
-    },
-  });
+  // Si quieres, añade alguno más:
+  // await prisma.user.upsert({
+  //   where: { email: 'torrensmartin@hotmail.com' },
+  //   create: {
+  //     email: 'torrensmartin@hotmail.com',
+  //     displayName: 'Jugador',
+  //     role: 'player' as any,
+  //     isActive: true,
+  //   },
+  //   update: {},
+  // });
+
+  console.log('Seed OK');
 }
 
 main()
   .catch((e) => {
-    console.error('❌ Error ejecutando seed:', e);
+    console.error('Seed error:', e);
     process.exit(1);
   })
   .finally(async () => {
