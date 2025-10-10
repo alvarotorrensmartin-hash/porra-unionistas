@@ -1,17 +1,18 @@
 // src/app/admin/access/page.tsx
+export const dynamic = "force-dynamic";
+
 import { prisma } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 
-export const dynamic = "force-dynamic";
-
 export default async function AdminAccessPage() {
+  // lee lista blanca
   const allowed = await prisma.allowedEmail.findMany({
     orderBy: { createdAt: "desc" },
   });
 
   return (
-    <main className="p-8">
-      <h1 className="text-2xl font-bold mb-6">Panel de administración</h1>
+    <main className="p-8 space-y-6">
+      <h1 className="text-2xl font-bold">Panel de administración · Accesos</h1>
 
       <form
         action={async (formData) => {
@@ -20,6 +21,7 @@ export default async function AdminAccessPage() {
           const role = (formData.get("role")?.toString() || "player") as
             | "admin"
             | "player";
+
           if (!email) return;
 
           await prisma.allowedEmail.upsert({
@@ -30,7 +32,7 @@ export default async function AdminAccessPage() {
 
           revalidatePath("/admin/access");
         }}
-        className="mb-8 flex gap-4"
+        className="flex gap-3"
       >
         <input
           type="email"
@@ -67,7 +69,9 @@ export default async function AdminAccessPage() {
                 <form
                   action={async () => {
                     "use server";
-                    await prisma.allowedEmail.delete({ where: { email: item.email } });
+                    await prisma.allowedEmail.delete({
+                      where: { email: item.email },
+                    });
                     revalidatePath("/admin/access");
                   }}
                 >
