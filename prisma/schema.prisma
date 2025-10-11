@@ -135,3 +135,12 @@ model AllowedEmail {
 
   @@map("AllowedEmail")
 }
+
+model PredictionScore {
+  predictionId Int        @id
+  points       Int        @default(0)
+
+  prediction   Prediction @relation(fields: [predictionId], references: [id], onDelete: Cascade)
+
+  @@map("PredictionScore")
+}
