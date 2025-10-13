@@ -6,36 +6,42 @@ import type { Matchday } from "@prisma/client";
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 
+const BASE = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_BASE_URL || '';
+
 export default async function AdminPage() {
   const mds: Matchday[] = await prisma.matchday.findMany({
     orderBy: [{ season: "desc" }, { number: "asc" }],
   });
 
-  // ✅ Server Action para recalcular
-  async function handleRecalc() {
+  // Recalcular TODO (global)
+  async function handleRecalcAll() {
     "use server";
-
-    // Base URL robusta (local o Vercel)
-    const base =
-      process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, "") ||
-      process.env.VERCEL_URL?.replace(/\/+$/, "")?.replace(/^https?:\/\//, "")
-        ? `https://${process.env.VERCEL_URL?.replace(/\/+$/, "")}`
-        : "http://localhost:3000";
-
-    const res = await fetch(`${base}/api/scores/recalc`, {
+    await fetch(`${BASE}/api/scores/recalc`, {
       method: "POST",
-      // evita cache en Server Actions
-      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}) // sin matchdayId => recalcula todo
+    });
+    revalidatePath('/admin');
+  }
+
+  // Recalc + Liquidar una jornada concreta
+  async function handleSettleOne(formData: FormData) {
+    "use server";
+    const idStr = formData.get('matchdayId')?.toString();
+    if (!idStr) return;
+    const id = Number(idStr);
+
+    // 1) Recalc sólo esa jornada
+    await fetch(`${BASE}/api/scores/recalc`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ matchdayId: id })
     });
 
-    // Opcional: manejar errores
-    if (!res.ok) {
-      console.error("Recalc failed", await res.text());
-    }
+    // 2) Liquidar (usa tu endpoint actual; si más adelante lo pasas a POST, cambia aquí)
+    await fetch(`${BASE}/api/matchdays/${id}/settle`, { method: "GET" });
 
-    // Revalida páginas que muestran puntos/clasificación
-    revalidatePath("/leaderboard");
-    revalidatePath("/matchdays");
+    revalidatePath('/admin');
   }
 
   return (
@@ -55,24 +61,16 @@ export default async function AdminPage() {
               📢 Probar notificaciones
             </Link>
           </li>
-          <li>
-            <a href="/admin/access" className="underline">
-              Gestionar acceso (lista blanca)
-            </a>
-          </li>
-          <li>
-            <a href="/api/notifications/test">Probar notificaciones</a>
-          </li>
         </ul>
 
-        {/* ✅ Botón para recalcular puntuaciones */}
-        <div className="mt-6">
-          <form action={handleRecalc}>
+        {/* Recalcular global */}
+        <div className="mt-4">
+          <form action={handleRecalcAll}>
             <button
               type="submit"
-              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition"
+              className="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 transition"
             >
-              🔄 Recalcular puntuaciones
+              🔄 Recalcular puntuaciones (todas)
             </button>
           </form>
         </div>
@@ -112,12 +110,19 @@ export default async function AdminPage() {
                     >
                       Cerrar (forzar)
                     </a>
-                    <a
-                      className="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
-                      href={`/api/matchdays/${md.id}/settle`}
-                    >
-                      Liquidar
-                    </a>
+
+                    {/* ✅ Botón combinado: recalc + liquidar */}
+                    <form action={handleSettleOne} className="inline">
+                      <input type="hidden" name="matchdayId" value={String(md.id)} />
+                      <button
+                        type="submit"
+                        className="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
+                        title="Recalcula y liquida esta jornada"
+                      >
+                        Liquidar
+                      </button>
+                    </form>
+
                   </td>
                 </tr>
               ))}
