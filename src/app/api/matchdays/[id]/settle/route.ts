@@ -11,16 +11,18 @@ const ECON = {
   worstTiedSplit: 7.5,
 };
 
-export async function GET(
-  _req: Request,
-  ctx: { params: { id: string } }
-) {
-  const id = Number(ctx.params.id);
+type RouteCtx = { params: { id: string } };
+
+export async function GET(_req: Request, ctx: RouteCtx) {
+  const idNum = Number(ctx.params.id);
+  if (!Number.isFinite(idNum)) {
+    return NextResponse.json({ ok: false, error: 'Matchday id inválido' }, { status: 400 });
+  }
 
   // 1) Partidos de la jornada que NO incluyen a Unionistas (solo campos necesarios)
   const matches = await prisma.match.findMany({
     where: {
-      matchdayId: id,
+      matchdayId: idNum,
       NOT: {
         OR: [
           { homeTeam: { isUnionistas: true } },
@@ -34,6 +36,10 @@ export async function GET(
     },
   });
 
+  if (!matches.length) {
+    return NextResponse.json({ ok: true, worst: [], second: [], note: 'No hay partidos válidos' });
+  }
+
   // Mapa matchId -> resultado real (solo si existe)
   const realSigns = new Map<number, Sign>();
   for (const m of matches) {
@@ -45,6 +51,10 @@ export async function GET(
     where: { isActive: true },
     select: { id: true, email: true, displayName: true },
   });
+
+  if (!users.length) {
+    return NextResponse.json({ ok: true, worst: [], second: [], note: 'No hay usuarios activos' });
+  }
 
   // 3) Para cada usuario, contamos picks y puntos comparando con realSigns
   type Tot = {
@@ -58,12 +68,11 @@ export async function GET(
   const totals: Tot[] = [];
 
   for (const u of users) {
-    // Traemos todas sus predicciones de esta jornada (solo campos necesarios)
     const preds = await prisma.prediction.findMany({
       where: {
         userId: u.id,
         match: {
-          matchdayId: id,
+          matchdayId: idNum,
           NOT: {
             OR: [
               { homeTeam: { isUnionistas: true } },
@@ -72,15 +81,10 @@ export async function GET(
           },
         },
       },
-      select: {
-        matchId: true,
-        predSign: true,
-      },
+      select: { matchId: true, predSign: true },
     });
 
-    const picks = preds.length;
     let points = 0;
-
     for (const p of preds) {
       const real = realSigns.get(p.matchId);
       if (real && p.predSign === real) points += 1;
@@ -91,7 +95,7 @@ export async function GET(
       email: u.email,
       display: u.displayName ?? u.email,
       points,
-      picks,
+      picks: preds.length,
     });
   }
 
@@ -103,7 +107,6 @@ export async function GET(
   if (notPresented.length > 0) {
     worstGroup = notPresented;
 
-    // Entre los presentados calculamos segundos peores por puntos
     const presented = totals.filter((t) => t.picks >= 9);
     if (presented.length > 0) {
       const minPts = Math.min(...presented.map((t) => t.points));
@@ -141,41 +144,50 @@ export async function GET(
 
   // 6) Info jornada para el asunto de los mails
   const md = await prisma.matchday.findUnique({
-    where: { id },
+    where: { id: idNum },
     select: { number: true, season: true },
   });
 
-  const title = `Liquidación Jornada ${md?.number} (${md?.season})`;
+  const title = `Liquidación Jornada ${md?.number ?? ''} (${md?.season ?? ''})`;
 
-  // 7) Emails
+  // 7) Emails (no bloquear por fallo)
+  const tasks: Promise<unknown>[] = [];
+
   if (worstGroup.length) {
-    await sendMail(
-      worstGroup.map((x) => x.email),
-      `${title} – Te toca pagar (peor resultado)`,
-      `<p>Has quedado en el grupo de <strong>peor resultado</strong> esta jornada.</p>
-       <p>Importe a pagar: <strong>${worstAmount.toFixed(2)} €</strong></p>`
+    tasks.push(
+      sendMail(
+        worstGroup.map((x) => x.email),
+        `${title} – Te toca pagar (peor resultado)`,
+        `<p>Has quedado en el grupo de <strong>peor resultado</strong> esta jornada.</p>
+         <p>Importe a pagar: <strong>${worstAmount.toFixed(2)} €</strong></p>`
+      )
     );
   }
 
   if (secondGroup.length) {
-    await sendMail(
-      secondGroup.map((x) => x.email),
-      `${title} – Te toca pagar (segundo peor)`,
-      `<p>Has quedado en el grupo de <strong>segundo peor resultado</strong> esta jornada.</p>
-       <p>Importe a pagar: <strong>${secondAmount.toFixed(2)} €</strong></p>`
+    tasks.push(
+      sendMail(
+        secondGroup.map((x) => x.email),
+        `${title} – Te toca pagar (segundo peor)`,
+        `<p>Has quedado en el grupo de <strong>segundo peor resultado</strong> esta jornada.</p>
+         <p>Importe a pagar: <strong>${secondAmount.toFixed(2)} €</strong></p>`
+      )
     );
   }
 
-  // Resumen a todos
   const resumen = totals
     .map((t) => `${t.display}: ${t.points} pts${t.picks < 9 ? ' (no presentado)' : ''}`)
     .join('<br>');
 
-  await sendMail(
-    users.map((u) => u.email),
-    `${title} – Resumen`,
-    `<p>Resumen de puntos:</p><p>${resumen}</p>`
+  tasks.push(
+    sendMail(
+      users.map((u) => u.email),
+      `${title} – Resumen`,
+      `<p>Resumen de puntos:</p><p>${resumen}</p>`
+    )
   );
+
+  await Promise.allSettled(tasks);
 
   return NextResponse.json({
     ok: true,

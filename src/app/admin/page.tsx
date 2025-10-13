@@ -4,11 +4,39 @@ export const revalidate = 0;
 import { prisma } from "@/lib/db";
 import type { Matchday } from "@prisma/client";
 import Link from "next/link";
+import { revalidatePath } from "next/cache";
 
 export default async function AdminPage() {
   const mds: Matchday[] = await prisma.matchday.findMany({
     orderBy: [{ season: "desc" }, { number: "asc" }],
   });
+
+  // ✅ Server Action para recalcular
+  async function handleRecalc() {
+    "use server";
+
+    // Base URL robusta (local o Vercel)
+    const base =
+      process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, "") ||
+      process.env.VERCEL_URL?.replace(/\/+$/, "")?.replace(/^https?:\/\//, "")
+        ? `https://${process.env.VERCEL_URL?.replace(/\/+$/, "")}`
+        : "http://localhost:3000";
+
+    const res = await fetch(`${base}/api/scores/recalc`, {
+      method: "POST",
+      // evita cache en Server Actions
+      cache: "no-store",
+    });
+
+    // Opcional: manejar errores
+    if (!res.ok) {
+      console.error("Recalc failed", await res.text());
+    }
+
+    // Revalida páginas que muestran puntos/clasificación
+    revalidatePath("/leaderboard");
+    revalidatePath("/matchdays");
+  }
 
   return (
     <main className="p-8">
@@ -27,9 +55,27 @@ export default async function AdminPage() {
               📢 Probar notificaciones
             </Link>
           </li>
-           <li><a href="/admin/access" className="underline">Gestionar acceso (lista blanca)</a></li>
-           <li><a href="/api/notifications/test">Probar notificaciones</a></li>
+          <li>
+            <a href="/admin/access" className="underline">
+              Gestionar acceso (lista blanca)
+            </a>
+          </li>
+          <li>
+            <a href="/api/notifications/test">Probar notificaciones</a>
+          </li>
         </ul>
+
+        {/* ✅ Botón para recalcular puntuaciones */}
+        <div className="mt-6">
+          <form action={handleRecalc}>
+            <button
+              type="submit"
+              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition"
+            >
+              🔄 Recalcular puntuaciones
+            </button>
+          </form>
+        </div>
       </section>
 
       <section>
@@ -50,7 +96,9 @@ export default async function AdminPage() {
                 <tr key={md.id}>
                   <td className="border px-3 py-2">{md.season}</td>
                   <td className="border px-3 py-2">{md.number}</td>
-                  <td className="border px-3 py-2">{new Date(md.startsAt).toLocaleString()}</td>
+                  <td className="border px-3 py-2">
+                    {new Date(md.startsAt).toLocaleString()}
+                  </td>
                   <td className="border px-3 py-2 space-x-2">
                     <a
                       className="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700"
@@ -80,6 +128,3 @@ export default async function AdminPage() {
     </main>
   );
 }
-
-
-

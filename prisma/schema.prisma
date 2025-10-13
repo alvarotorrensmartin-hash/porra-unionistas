@@ -86,7 +86,7 @@ model Match {
   homeTeamId Int
   awayTeamId Int
   startsAt   DateTime
-  result     Sign?
+  result     Sign?    @map("federationOutcome")
 
   matchday    Matchday     @relation(fields: [matchdayId], references: [id], onDelete: Cascade)
   homeTeam    Team         @relation("HomeTeam", fields: [homeTeamId], references: [id])
@@ -104,6 +104,7 @@ model Prediction {
   userId    String   @db.Uuid
   matchId   Int
   predSign  Sign
+  score      PredictionScore?
   createdAt DateTime @default(now())
 
   user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
