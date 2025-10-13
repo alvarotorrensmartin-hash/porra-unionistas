@@ -1,82 +1,59 @@
+// src/app/api/predictions/bulk/route.ts
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
-import type { Sign } from '@prisma/client';
+import { createSupabaseServerClient } from '@/lib/supabaseServer';
 
-// Normaliza valores que puedan venir del front
-function normalizeSign(v: string): Sign | null {
-  const s = v.toUpperCase();
-  if (s === 'ONE' || s === '_1' || s === '1') return 'ONE';
-  if (s === 'X') return 'X';
-  if (s === 'TWO' || s === '_2' || s === '2') return 'TWO';
-  return null;
-}
-
+// Espera body: { matchdayId: number, picks: Array<{ matchId: number, predSign: 'ONE'|'X'|'TWO' }> }
 export async function POST(req: Request) {
   try {
-    const body = await req.json() as {
-      matchdayId: number;
-      picks: { matchId: number; predSign: string }[];
-    };
+    const supabase = createSupabaseServerClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
 
-    // Autenticación (Supabase SSR)
-    const cookieStore = cookies();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          get(name: string) {
-            return cookieStore.get(name)?.value;
-          },
-          set(name: string, value: string, options: any) {
-            cookieStore.set({ name, value, ...options });
-          },
-          remove(name: string, options: any) {
-            cookieStore.set({ name, value: '', ...options, maxAge: 0 });
-          },
-        },
-      }
+    if (authError || !user) {
+      return NextResponse.json({ ok: false, error: 'UNAUTHENTICATED' }, { status: 401 });
+    }
+
+    const body = await req.json();
+    const matchdayId = Number(body.matchdayId);
+    const picks = Array.isArray(body.picks) ? body.picks : [];
+
+    if (!matchdayId || picks.length === 0) {
+      return NextResponse.json({ ok: false, error: 'BAD_REQUEST' }, { status: 400 });
+    }
+
+    // Validar que todos los matches pertenecen a esa jornada
+    const validMatchIds = new Set(
+      (
+        await prisma.match.findMany({
+          where: { matchdayId },
+          select: { id: true },
+        })
+      ).map((m) => m.id)
     );
 
-    const { data: auth } = await supabase.auth.getUser();
-    const email = auth.user?.email?.toLowerCase();
-    if (!email) {
-      return NextResponse.json({ ok: false, error: 'NO_AUTH' }, { status: 401 });
-    }
+    let count = 0;
+    for (const p of picks) {
+      const matchId = Number(p.matchId);
+      const predSign = p.predSign as 'ONE' | 'X' | 'TWO';
+      if (!validMatchIds.has(matchId)) continue;
+      if (!['ONE', 'X', 'TWO'].includes(predSign)) continue;
 
-    // Buscar/crear el usuario interno
-    const user = await prisma.user.upsert({
-      where: { email },
-      update: {},
-      create: {
-        email,
-        displayName: email,
-      },
-      select: { id: true },
-    });
-
-    // Validación básica
-    if (!Array.isArray(body.picks) || body.picks.length === 0) {
-      return NextResponse.json({ ok: false, error: 'NO_PICKS' }, { status: 400 });
-    }
-
-    // Upsert de cada pick usando la clave compuesta CORRECTA: userId_matchId
-    for (const p of body.picks) {
-      const sign = normalizeSign(p.predSign);
-      if (!sign) continue;
-
+      // IMPORTANTE: el where debe usar el nombre real del índice único compuesto
+      // En tu schema es: @@unique([userId, matchId])  => Prisma lo llama userId_matchId
       await prisma.prediction.upsert({
-        where: { userId_matchId: { userId: user.id, matchId: p.matchId } },
-        update: { predSign: sign },
-        create: { userId: user.id, matchId: p.matchId, predSign: sign },
+        where: { userId_matchId: { userId: user.id, matchId } },
+        update: { predSign },
+        create: { userId: user.id, matchId, predSign },
       });
+      count++;
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, saved: count });
   } catch (e: any) {
     console.error('bulk predictions error', e);
-    return NextResponse.json({ ok: false, error: 'SERVER_ERROR' }, { status: 500 });
+    return NextResponse.json({ ok: false, error: 'INTERNAL' }, { status: 500 });
   }
 }
