@@ -1,51 +1,71 @@
-import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabaseServer"; // <-- usa el helper
-import { prisma } from "@/lib/db";
+import { NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
+import { createServerClient } from '@supabase/ssr';
+import { prisma } from '@/lib/db';
 
-export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const supabase = createSupabaseServerClient();
+const roleMap = { admin: 'ADMIN', player: 'PLAYER' } as const;
 
-  // Intercambia el "code" del magic link por una sesión
-  // (si tu versión de @supabase/ssr acepta URL completa, usa directamente `req.url`)
-  const code = url.searchParams.get("code") ?? "";
-  const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const joinMode = process.env.JOIN_MODE ?? 'open';
+  const inviteCodeEnv = (process.env.INVITE_CODE || '').trim();
 
-  if (error) {
-    console.error("[auth/callback] exchange error:", error.message);
-    return NextResponse.redirect(new URL("/login?e=auth", url.origin));
+  const cookieStore = cookies();
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value;
+        },
+        set(name: string, value: string, options: any) {
+          cookieStore.set({ name, value, ...options });
+        },
+        remove(name: string, options: any) {
+          cookieStore.set({ name, value: '', ...options, maxAge: 0 });
+        },
+      },
+    }
+  );
+
+  const { data, error } = await supabase.auth.exchangeCodeForSession(url);
+  if (error) return NextResponse.redirect(new URL('/login?e=auth', url));
+
+  const email = (data.user?.email ?? '').toLowerCase();
+  const meta = data.user?.user_metadata as { displayName?: string; inviteCode?: string } | null;
+
+  if (!email) return NextResponse.redirect(new URL('/login?e=noemail', url));
+
+  // Control de acceso según modo
+  if (joinMode === 'invite') {
+    if (!meta?.inviteCode || meta.inviteCode.trim() !== inviteCodeEnv) {
+      await supabase.auth.signOut();
+      return NextResponse.redirect(new URL('/no-autorizado', url));
+    }
+  } else if (joinMode === 'whitelist') {
+    const allowed = await prisma.allowedEmail.findUnique({ where: { email } });
+    if (!allowed || !allowed.isActive) {
+      await supabase.auth.signOut();
+      return NextResponse.redirect(new URL('/no-autorizado', url));
+    }
   }
 
-  const email = data.user?.email?.toLowerCase();
-  if (!email) {
-    return NextResponse.redirect(new URL("/login?e=noemail", url.origin));
-  }
+  const displayName = (meta?.displayName || '').trim() || email;
 
-  // Comprueba lista blanca
-  const allowed = await prisma.allowedEmail.findUnique({ where: { email } });
-  if (!allowed || !allowed.isActive) {
-    await supabase.auth.signOut();
-    return NextResponse.redirect(new URL("/no-autorizado", url.origin));
-  }
-
-  // Crea/actualiza el usuario interno (UUID automático, role por defecto 'player')
-  const display =
-    (data.user.user_metadata as any)?.full_name ||
-    email.split("@")[0];
-
+  // Crea/actualiza el usuario interno
   await prisma.user.upsert({
     where: { email },
-    update: { displayName: display },
+    update: {
+      displayName, // si quieres, ponlo solo si está vacío
+      isActive: true,
+    },
     create: {
       email,
-      displayName: display,
-      // role: allowed.role  // ← si quieres mapear el rol desde AllowedEmail, descomenta esto
+      displayName,
+      isActive: true,
     },
   });
 
-  // Redirige a la app
-  return NextResponse.redirect(new URL("/matchdays", url.origin));
+  return NextResponse.redirect(new URL('/matchdays', url));
 }
-
-
-

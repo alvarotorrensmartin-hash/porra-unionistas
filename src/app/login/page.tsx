@@ -1,69 +1,97 @@
-"use client";
+'use client';
 
-import { useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import { useState } from 'react';
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 export default function LoginPage() {
-  const [email, setEmail] = useState("");
-  const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [email, setEmail] = useState('');
+  const [nick, setNick] = useState('');
+  const [invite, setInvite] = useState('');
+  const [msg, setMsg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const joinMode = process.env.NEXT_PUBLIC_JOIN_MODE ?? 'open';
 
-  const handleLogin = async (e: React.FormEvent) => {
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true);
-    setMessage("");
+    setMsg(null);
+    setError(null);
+
+    if (!email || !nick) {
+      setError('Pon tu email y un nombre visible.');
+      return;
+    }
+    if ((process.env.NEXT_PUBLIC_JOIN_MODE === 'invite') && !invite) {
+      setError('Falta el código de invitación.');
+      return;
+    }
 
     const { error } = await supabase.auth.signInWithOtp({
-      email: email.trim().toLowerCase(),
+      email,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`, // 👈 Aquí irá tras el login
+        emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`,
+        data: {
+          displayName: nick,
+          inviteCode: invite || null,
+        },
+        shouldCreateUser: true,
       },
     });
 
-    if (error) {
-      console.error(error);
-      setMessage("❌ Error al enviar el enlace. Intenta de nuevo.");
-    } else {
-      setMessage("✅ Enlace enviado. Revisa tu correo para iniciar sesión.");
-    }
-
-    setLoading(false);
-  };
+    if (error) setError(error.message);
+    else setMsg('Te hemos enviado un enlace de acceso a tu email. Revisa tu bandeja.');
+  }
 
   return (
-    <main className="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-6">
-      <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
-        <h1 className="text-2xl font-bold mb-6 text-center">Inicia sesión</h1>
-
-        <form onSubmit={handleLogin} className="flex flex-col gap-4">
+    <main className="p-8 max-w-md mx-auto">
+      <h1 className="text-2xl font-bold mb-4">Entrar</h1>
+      <form onSubmit={onSubmit} className="space-y-3">
+        <input
+          type="text"
+          className="w-full border rounded p-2"
+          placeholder="Tu nick (visible)"
+          value={nick}
+          onChange={(e) => setNick(e.target.value)}
+          required
+        />
+        <input
+          type="email"
+          className="w-full border rounded p-2"
+          placeholder="tu@email.com"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+        />
+        {(process.env.NEXT_PUBLIC_JOIN_MODE === 'invite') && (
           <input
-            type="email"
+            type="text"
+            className="w-full border rounded p-2"
+            placeholder="Código de invitación"
+            value={invite}
+            onChange={(e) => setInvite(e.target.value)}
             required
-            placeholder="tu@email.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="border border-gray-300 rounded p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
-
-          <button
-            type="submit"
-            disabled={loading}
-            className={`w-full p-3 rounded text-white font-semibold ${
-              loading ? "bg-blue-400" : "bg-blue-600 hover:bg-blue-700"
-            }`}
-          >
-            {loading ? "Enviando..." : "Recibir enlace de acceso"}
-          </button>
-        </form>
-
-        {message && (
-          <p className="mt-4 text-center text-sm">
-            {message}
-          </p>
         )}
-      </div>
+        <button
+          type="submit"
+          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+        >
+          Recibir enlace
+        </button>
+      </form>
+      {msg && <p className="text-green-600 mt-4">{msg}</p>}
+      {error && <p className="text-red-600 mt-4">{error}</p>}
+      <p className="text-sm text-gray-400 mt-4">
+        {joinMode === 'open'
+          ? 'Registro abierto.'
+          : joinMode === 'invite'
+          ? 'Se requiere código de invitación.'
+          : 'Modo lista blanca (solo emails autorizados).'}
+      </p>
     </main>
   );
 }
-
-

@@ -1,16 +1,47 @@
 // src/app/matchdays/[id]/page.tsx
 import { prisma } from '@/lib/db';
+import { revalidatePath } from 'next/cache';
 import { notFound } from 'next/navigation';
-import type { Match, Team, Matchday } from '@prisma/client';
+import type { Match, Team, Matchday, Sign } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
 
 type MatchWithTeams = Match & { homeTeam: Team; awayTeam: Team };
 
-export default async function MatchdayPage({ params }: { params: { id: string } }) {
+async function saveResults(formData: FormData) {
+  'use server';
+
+  const mdId = Number(formData.get('mdId'));
+  const ids = formData.getAll('matchId') as string[];
+  const results = formData.getAll('result') as string[];
+
+  // Guardar resultados (1, X, 2) en la columna Match.result
+  for (let i = 0; i < ids.length; i++) {
+    const id = Number(ids[i]);
+    const r = results[i];
+    const val: Sign | null =
+      r === 'ONE' ? 'ONE' : r === 'TWO' ? 'TWO' : r === 'X' ? 'X' : null;
+
+    await prisma.match.update({
+      where: { id },
+      data: { result: val },
+    });
+  }
+
+  // Recalcular puntuaciones de esa jornada (opcional)
+  // await fetch(`${process.env.NEXT_PUBLIC_SITE_URL}/api/scores/recalc?id=${mdId}`, { method: 'POST' });
+
+  revalidatePath(`/matchdays/${mdId}`);
+}
+
+export default async function MatchdayPage({
+  params,
+}: {
+  params: { id: string };
+}) {
   const id = Number(params.id);
 
-  const md: Matchday | null = await prisma.matchday.findUnique({
+  const md = await prisma.matchday.findUnique({
     where: { id },
   });
   if (!md) return notFound();
@@ -30,8 +61,9 @@ export default async function MatchdayPage({ params }: { params: { id: string } 
         Resultados jornada {md.number} ({md.season})
       </h1>
 
-      {/* 👇 Enviamos el POST al endpoint que acabamos de crear */}
-      <form method="POST" action={`/api/matchdays/${md.id}/results`} className="space-y-4">
+      <form action={saveResults} className="space-y-4">
+        <input type="hidden" name="mdId" value={md.id} />
+
         <table className="min-w-full border border-gray-300 text-sm">
           <thead className="bg-gray-100">
             <tr>
@@ -43,7 +75,8 @@ export default async function MatchdayPage({ params }: { params: { id: string } 
             {matches.map((m) => (
               <tr key={m.id}>
                 <td className="border px-3 py-2">
-                  {m.homeTeam.shortName ?? m.homeTeam.name} – {m.awayTeam.shortName ?? m.awayTeam.name}
+                  {m.homeTeam.shortName ?? m.homeTeam.name} –{' '}
+                  {m.awayTeam.shortName ?? m.awayTeam.name}
                 </td>
                 <td className="border px-3 py-2">
                   <input type="hidden" name="matchId" value={m.id} />
