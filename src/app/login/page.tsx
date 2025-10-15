@@ -1,97 +1,90 @@
-'use client';
+// src/app/login/page.tsx
+"use client";
 
-import { useState } from 'react';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+import { useState } from "react";
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 
 export default function LoginPage() {
-  const [email, setEmail] = useState('');
-  const [nick, setNick] = useState('');
-  const [invite, setInvite] = useState('');
-  const [msg, setMsg] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const joinMode = process.env.NEXT_PUBLIC_JOIN_MODE ?? 'open';
+  const supabase = createClientComponentClient();
+  const [email, setEmail] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [status, setStatus] = useState<"idle"|"sending"|"sent"|"error">("idle");
+  const [errorMsg, setErrorMsg] = useState("");
 
-  async function onSubmit(e: React.FormEvent) {
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setMsg(null);
-    setError(null);
-
-    if (!email || !nick) {
-      setError('Pon tu email y un nombre visible.');
+    setErrorMsg("");
+    if (!email || !displayName) {
+      setErrorMsg("Rellena Nick y Email.");
       return;
     }
-    if ((process.env.NEXT_PUBLIC_JOIN_MODE === 'invite') && !invite) {
-      setError('Falta el código de invitación.');
-      return;
-    }
+    try {
+      setStatus("sending");
 
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`,
-        data: {
-          displayName: nick,
-          inviteCode: invite || null,
+      // Guarda el nick en cookie temporal (1 hora)
+      document.cookie = `pending_display_name=${encodeURIComponent(displayName)}; Path=/; Max-Age=3600; SameSite=Lax`;
+
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
         },
-        shouldCreateUser: true,
-      },
-    });
+      });
+      if (error) throw error;
 
-    if (error) setError(error.message);
-    else setMsg('Te hemos enviado un enlace de acceso a tu email. Revisa tu bandeja.');
-  }
+      setStatus("sent");
+    } catch (err: any) {
+      setErrorMsg(err.message ?? "Error enviando el email.");
+      setStatus("error");
+    }
+  };
 
   return (
-    <main className="p-8 max-w-md mx-auto">
-      <h1 className="text-2xl font-bold mb-4">Entrar</h1>
+    <main className="p-6 max-w-md mx-auto">
+      <h1 className="text-2xl font-bold mb-4">Entrar a la porra</h1>
+      <p className="text-sm mb-4">
+        Introduce tu <strong>Nick</strong> (nombre visible en la clasificación) y tu <strong>Email</strong>.
+        Te enviaremos un enlace mágico para entrar.
+      </p>
+
       <form onSubmit={onSubmit} className="space-y-3">
-        <input
-          type="text"
-          className="w-full border rounded p-2"
-          placeholder="Tu nick (visible)"
-          value={nick}
-          onChange={(e) => setNick(e.target.value)}
-          required
-        />
-        <input
-          type="email"
-          className="w-full border rounded p-2"
-          placeholder="tu@email.com"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
-        {(process.env.NEXT_PUBLIC_JOIN_MODE === 'invite') && (
+        <div>
+          <label className="block text-sm mb-1">Nick</label>
           <input
-            type="text"
-            className="w-full border rounded p-2"
-            placeholder="Código de invitación"
-            value={invite}
-            onChange={(e) => setInvite(e.target.value)}
+            className="border rounded p-2 w-full"
+            placeholder="ej. Juan (DG)"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
             required
           />
-        )}
+        </div>
+        <div>
+          <label className="block text-sm mb-1">Email</label>
+          <input
+            type="email"
+            className="border rounded p-2 w-full"
+            placeholder="tu@email.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
+        </div>
+
         <button
+          className="bg-black text-white px-4 py-2 rounded"
           type="submit"
-          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+          disabled={status === "sending"}
         >
-          Recibir enlace
+          {status === "sending" ? "Enviando..." : "Entrar"}
         </button>
+
+        {status === "sent" && (
+          <p className="text-green-700 text-sm">
+            ¡Listo! Revisa tu correo y entra con el enlace.
+          </p>
+        )}
+        {errorMsg && <p className="text-red-600 text-sm">{errorMsg}</p>}
       </form>
-      {msg && <p className="text-green-600 mt-4">{msg}</p>}
-      {error && <p className="text-red-600 mt-4">{error}</p>}
-      <p className="text-sm text-gray-400 mt-4">
-        {joinMode === 'open'
-          ? 'Registro abierto.'
-          : joinMode === 'invite'
-          ? 'Se requiere código de invitación.'
-          : 'Modo lista blanca (solo emails autorizados).'}
-      </p>
     </main>
   );
 }
