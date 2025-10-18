@@ -1,11 +1,11 @@
 // src/app/auth/callback/route.ts
-import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
-import { prisma } from "@/lib/db";
+import { NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
+import { createServerClient } from '@supabase/ssr';
+import { prisma } from '@/lib/db';
 
-export async function GET(req: Request) {
-  const url = new URL(req.url);
+export async function GET(request: Request) {
+  const url = new URL(request.url);
   const cookieStore = cookies();
 
   const supabase = createServerClient(
@@ -20,53 +20,39 @@ export async function GET(req: Request) {
           cookieStore.set({ name, value, ...options });
         },
         remove(name: string, options: any) {
-          cookieStore.set({ name, value: "", ...options, maxAge: 0 });
+          cookieStore.set({ name, value: '', ...options, maxAge: 0 });
         },
       },
     }
   );
 
-  // Intercambia el "code" del magic link por una sesión
-  const { data, error } = await supabase.auth.exchangeCodeForSession(
-    url.toString() // <- aquí el fix del tipo
-  );
+  // ⛳️ Aquí estaba el fallo: pásale un string, no un objeto URL
+  const { data, error } = await supabase.auth.exchangeCodeForSession(request.url);
   if (error) {
-    return NextResponse.redirect(new URL("/login?e=auth", url));
+    return NextResponse.redirect(new URL('/login?e=auth', url));
   }
 
-  const email = (data.user?.email ?? "").toLowerCase();
+  const email = (data.user?.email ?? '').toLowerCase();
   if (!email) {
-    return NextResponse.redirect(new URL("/login?e=noemail", url));
+    return NextResponse.redirect(new URL('/login?e=noemail', url));
   }
 
-  // Lee el Nick que guardamos en /login
-  const raw = cookieStore.get("pending_display_name")?.value;
-  const displayNameFromCookie = raw ? decodeURIComponent(raw) : undefined;
+  // Si mantienes la whitelist, descomenta este bloque:
+  // const allowed = await prisma.allowedEmail.findUnique({ where: { email } });
+  // if (!allowed || !allowed.isActive) {
+  //   await supabase.auth.signOut();
+  //   return NextResponse.redirect(new URL('/no-autorizado', url));
+  // }
 
-  // Crea o actualiza el usuario interno
+  // Asegura el usuario interno (crea si no existe)
   await prisma.user.upsert({
     where: { email },
-    update: {
-      ...(displayNameFromCookie ? { displayName: displayNameFromCookie } : {}),
-      isActive: true,
-    },
+    update: {},
     create: {
       email,
-      displayName: displayNameFromCookie ?? email,
-      isActive: true,
+      displayName: data.user.user_metadata?.displayName || email.split('@')[0],
     },
   });
 
-  // Borra la cookie temporal del Nick
-  if (raw) {
-    cookieStore.set({
-      name: "pending_display_name",
-      value: "",
-      path: "/",
-      maxAge: 0,
-    });
-  }
-
-  // Adelante a la app
-  return NextResponse.redirect(new URL("/matchdays", url));
+  return NextResponse.redirect(new URL('/matchdays', url));
 }
