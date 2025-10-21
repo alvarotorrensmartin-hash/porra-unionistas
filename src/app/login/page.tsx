@@ -24,14 +24,13 @@ export default function LoginPage() {
       // Guarda el nick en cookie temporal (1 hora)
       document.cookie = `pending_display_name=${encodeURIComponent(displayName)}; Path=/; Max-Age=3600; SameSite=Lax`;
 
-      const { error } = await supabase.auth.signInWithOtp({
+      await supabase.auth.signInWithOtp({
         email,
         options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
+          emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`,
         },
       });
-      if (error) throw error;
-
+      
       setStatus("sent");
     } catch (err: any) {
       setErrorMsg(err.message ?? "Error enviando el email.");

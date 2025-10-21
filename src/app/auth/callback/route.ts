@@ -1,11 +1,9 @@
-// src/app/auth/callback/route.ts
-import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { createServerClient } from '@supabase/ssr';
-import { prisma } from '@/lib/db';
+import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
+import { prisma } from "@/lib/db";
 
-export async function GET(request: Request) {
-  const url = new URL(request.url);
+export async function GET(req: Request) {
   const cookieStore = cookies();
 
   const supabase = createServerClient(
@@ -20,39 +18,45 @@ export async function GET(request: Request) {
           cookieStore.set({ name, value, ...options });
         },
         remove(name: string, options: any) {
-          cookieStore.set({ name, value: '', ...options, maxAge: 0 });
+          cookieStore.set({ name, value: "", ...options, maxAge: 0 });
         },
       },
     }
   );
 
-  // ⛳️ Aquí estaba el fallo: pásale un string, no un objeto URL
-  const { data, error } = await supabase.auth.exchangeCodeForSession(request.url);
+  // ¡IMPORTANTE!: la API de ssr espera un string, no un objeto URL.
+  const { data, error } = await supabase.auth.exchangeCodeForSession(req.url);
   if (error) {
-    return NextResponse.redirect(new URL('/login?e=auth', url));
+    // vuelve al login con error
+    const back = new URL("/login?e=auth", process.env.NEXT_PUBLIC_SITE_URL);
+    return NextResponse.redirect(back);
   }
 
-  const email = (data.user?.email ?? '').toLowerCase();
+  const email = data.user?.email?.toLowerCase() ?? "";
   if (!email) {
-    return NextResponse.redirect(new URL('/login?e=noemail', url));
+    const back = new URL("/login?e=noemail", process.env.NEXT_PUBLIC_SITE_URL);
+    return NextResponse.redirect(back);
   }
 
-  // Si mantienes la whitelist, descomenta este bloque:
-  // const allowed = await prisma.allowedEmail.findUnique({ where: { email } });
-  // if (!allowed || !allowed.isActive) {
-  //   await supabase.auth.signOut();
-  //   return NextResponse.redirect(new URL('/no-autorizado', url));
-  // }
+  // Opcional: recoge un displayName que hayas puesto en cookie temporal
+  const displayFromCookie = cookies().get("displayName")?.value?.trim();
 
-  // Asegura el usuario interno (crea si no existe)
+  // Asegura usuario interno (upsert por email)
   await prisma.user.upsert({
     where: { email },
-    update: {},
+    update: {
+      // si dejaste displayName como obligatorio, sólo lo tocamos si viene cookie
+      ...(displayFromCookie ? { displayName: displayFromCookie } : {}),
+      isActive: true,
+    },
     create: {
       email,
-      displayName: data.user.user_metadata?.displayName || email.split('@')[0],
+      displayName: displayFromCookie || email.split("@")[0],
+      isActive: true,
     },
   });
 
-  return NextResponse.redirect(new URL('/matchdays', url));
+  // redirige a la app
+  const to = new URL("/matchdays", process.env.NEXT_PUBLIC_SITE_URL);
+  return NextResponse.redirect(to);
 }
